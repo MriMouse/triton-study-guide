@@ -1,0 +1,35 @@
+{
+  "repository_url": "https://github.com/triton-lang/triton.git",
+  "local_checkout": "triton-legacy",
+  "commit": "b9e36331be854e37aa14c538861689533ec0dfb0",
+  "reference": "v0.1",
+  "commit_date": "2020-05-04T10:43:38-04:00",
+  "paper_date": "2019-06-22",
+  "selection_rationale": "Fallback to the official v0.1 commit after the GitHub commits-until API request returned HTTP 403 rate limit exceeded. This 2020 snapshot retains the Triton-C frontend and custom Triton-IR, but is not asserted to be the exact source version used for the 2019 paper experiments.",
+  "attempted_date_query": "https://api.github.com/repos/triton-lang/triton/commits?until=2019-06-22T23:59:59Z&per_page=1",
+  "checkout_method": "Independent Git repository, depth-1 fetch of the exact SHA, detached HEAD; no submodules or full history.",
+  "disk_check_before_download": "66 GiB available on the workspace filesystem; historical source estimated below 100 MiB; no disk hard quota claimed.",
+  "inspection_only": true,
+  "built_or_executed": false,
+  "evidence_paths": [
+    "triton-legacy/README.md",
+    "triton-legacy/docs/tutorials/custom-operation.rst",
+    "triton-legacy/lib/runtime/function.cc",
+    "triton-legacy/lib/lang/parser.cc",
+    "triton-legacy/lib/lang/code_gen.cc",
+    "triton-legacy/include/triton/ir/type.h",
+    "triton-legacy/include/triton/ir/instructions.h",
+    "triton-legacy/lib/codegen/analysis/layout.cc",
+    "triton-legacy/lib/codegen/analysis/allocation.cc",
+    "triton-legacy/lib/codegen/transform/peephole.cc",
+    "triton-legacy/lib/codegen/transform/coalesce.cc",
+    "triton-legacy/lib/codegen/transform/membar.cc",
+    "triton-legacy/lib/codegen/selection/generator.cc",
+    "triton-legacy/lib/driver/module.cc"
+  ],
+  "mapping_limits": [
+    "No independent prefetch pass identified in this snapshot; do not equate an unrelated pass with paper section 5.1.1.",
+    "No psi-named node identified in the project's own old IR sources; phi is not assumed equivalent to paper notation.",
+    "The historical custom-operation tutorial contains a punctuation error in its Python wrapper; only the C kernel is used for the reading exercise."
+  ]
+}
