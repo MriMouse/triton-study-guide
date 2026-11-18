@@ -19,7 +19,9 @@
 
 第 1 句介绍算子背景。接下来看图 9(a) 的数据、过滤器、输出；再看图 9(b)，把每个输出位置对应的窗口展成一行，过滤器展成矩阵的列。若输入只有一个通道、窗口是 2×2，一个窗口就在乘法里贡献四个乘积。implicit GEMM 在 kernel 内按坐标现取窗口里的值，省去预先写出整张展开矩阵。shift 卷积在取输入时先为各通道改变坐标，然后对通道做点积。末句引到 Listing 8 的偏移表。
 
-沿[旧卷积实现](../../triton-legacy/python/triton/nn/conv.py#L6)的 `_conv2d.forward` 找 `einsum` 调用，再沿[旧 einsum 实现](../../triton-legacy/python/triton/ops/einsum.py#L363)的 `symbolic_delta`、`make_delta` 追索引表达式如何得到地址增量。在表达式 `h*2+r` 中，`h` 是输出坐标，2 是 stride，`r` 是过滤器窗口内的坐标。三者合起来才选到真实的输入行。
+[旧卷积的 forward](../../triton-legacy/python/triton/nn/conv.py#L20) 先计算输出高、宽并分配张量，然后调用 `einsum(..., output=output, values={...})`。这里 `output=output` 左边是接口的参数名，右边是刚分配的张量变量；`values` 是按名字保存参数值的 Python 字典。表达式中的 `stride_h`、`pad_h` 是索引中的名字，字典提供这一调用中对应的值。比如没有 padding、`stride_h=2` 时，输出第 1 行、窗口第 0 或第 1 行，输入行分别为 `1*2+0=2` 和 `1*2+1=3`。所以源码里的 `h*stride_h + r - pad_h` 就是在确定从输入哪一行取数。
+
+再用其中一条语句连接索引和步长。[symbolic_delta](../../triton-legacy/python/triton/ops/einsum.py#L363) 建立一个 `nexts` 字典，将归约轴名字换成相应的下一步名字。`symbols[i].subs(nexts)` 对第 i 个坐标表达式执行这个替换。以输入行表达式 `h*2+r` 为例，若归约轴里有 `r`，替换后为 `h*2+nextr`；两式相减，只剩 `nextr-r`。代码再乘 `strides[i]`，即地址在该输入轴移动一格要跨的元素数。比如 `r=0`、`nextr=1`、行跨度为 4 项，表达式的这部分给地址增量贡献 4。循环把输入各轴的贡献加起来，才能得出完整地址差。这里的 `strides[i]` 是张量的存储步长，与卷积表达式里让窗口移动的 `stride_h` 是两个不同的量。
 
 ### §6.2.1、Table 1 与 Figure 10（PDF 第 7–8 页）
 
@@ -40,7 +42,7 @@
 
 ### 用两个通道追一次 shift 的地址
 
-先把[示例表达式](../../triton-legacy/python/examples/einsum.py#L166) `nc(h + sh[c])(w + sw[c]),ck->nkhw` 拆开。逗号左边是输入 A 的下标，右边是权重的下标，箭头后是输出的下标。输入和权重都出现了 c，输出里没有 c，因此把所有通道的乘积加起来。式子里的 `sh[c]`、`sw[c]` 按通道查各自的位移。这里的 `k` 是输出通道，别和 GEMM 常用来表示归约长度的 K 混淆。
+先把[示例表达式](../../triton-legacy/python/examples/einsum.py#L174) `nc(h + sh[c])(w + sw[c]),ck->nkhw` 拆开。逗号左边是输入 A 的下标，右边是权重的下标，箭头后是输出的下标。输入和权重都出现了 c，输出里没有 c，因此把所有通道的乘积加起来。式子里的 `sh[c]`、`sw[c]` 按通道查各自的位移。这里的 `k` 是输出通道，别和 GEMM 常用来表示归约长度的 K 混淆。
 
 例如输入宽四格，取输出位置 `(h,w)=(1,1)`。假设通道 0 的偏移是 `(0,1)`，通道 1 是 `(1,0)`。这个输出的两个输入分别从通道 0 的 `(1,2)`、通道 1 的 `(2,1)` 读取。若两个读出来的值是 5、7，所选输出通道的两个权重是 2、3，输出是 `5*2 + 7*3 = 31`。**结果仍写给 (1,1)**。这个例子演示合法坐标内的取数和累加，边界要以被读的 kernel 合同为准。
 
@@ -48,9 +50,24 @@
 
 1. **显式 shift 的参照。** 示例里的 `shift_conv(a, b, **kwargs)` 接收输入、权重以及按名字传的额外值。用 `kwargs['sh']`、`kwargs['sw']` 从字典按键读取对应的位移数组，`sh` 对应高度，`sw` 对应宽度。`shift.apply` 先生成位移后的输入，再把权重改成 1×1 形状交给 `conv2d`。[星号和字典语法](../chapters/00-foundations.md#python-launch-syntax)可回查。
 2. **在取数时完成位移。** 示例末尾把表达式与位移数组交给 `triton.ops.einsum`。沿 [`make_delta`](../../triton-legacy/python/triton/ops/einsum.py#L379) 找到 `k` 和 `nextk`，它们记录当前与下次要访问的归约位置。函数把归约位置拆回各个轴坐标，再用符号表达式求两次地址的差。可先用两个假地址 10 和 25 理解，表里记录差 15，就可以在原指针上加 15 找到下次地址。
-3. **从表项到 kernel。** 从同文件的[生成器](../../triton-legacy/python/triton/ops/einsum.py#L181)找 `*padelta`。这里生成的 Triton-C 会沿表指针读取增量，随后在循环中更新输入指针。结合 Listing 8 的 `pxa + delta` 来看，论文清单按基址加选中偏移写，v0.1 生成器有按前后两次访问的增量推进的路径。Figure 11 里的融合收益要回到论文测量条件理解。
+3. **从表项到 kernel。** [生成器](../../triton-legacy/python/triton/ops/einsum.py#L181) 用 `src += f"""..."""` 把多行文字拼到已有源码末尾。Python 先替换花括号里的 `spec` 和 `cast`；在 DRAM 路径里两者都是空字符串，因此交给 parser 的主体是 `int *padelta[TK] = AD + offadelta;`。`AD` 指向增量表，`offadelta` 是 TK 个表下标。若 `off_k=0`、TK=2，就得到指向表第 0、1 项的两个地址。下一行 `(*padelta)[newaxis, :, newaxis]` 先读出两个增量，再把形状由 `[2]` 变为 `[1,2,1]`，然后可广播到 M、K、批次对齐的三维块。后续 `pa += incda` 用这组增量推进数据地址，`padelta += TK` 则让表指针去下一组表项。论文清单的 `pxa + delta` 是从基址加偏移，v0.1 这里展示的是沿地址增量更新的路径。
 
 如果只想确认理解，可以把通道 1 的位移改成零，重新写两个输入坐标。变的是其中一个输入地址，输出位置仍为 `(1,1)`。
+
+<a id="read-shift-call-chain"></a>
+### 从调用追到生成的 kernel，在哪里停下来
+
+此前的两通道例子回答了位移地址的数学问题。现在要回答源码问题：**谁把 `sh`、`sw` 交给生成器，生成出来的源码或参数又交给谁？** 从 [示例末尾](../../triton-legacy/python/examples/einsum.py#L191)的 `triton.ops.einsum(expr, ta, tb, tc, arrays=arrays, bench=True)` 开始。先认实参：`expr` 是索引表达式的文字，`ta/tb` 是输入张量，`tc` 是预先准备的输出，`arrays` 给表达式里的名字提供数据。
+
+| 当前在哪 | 这一站只读这些操作 | 什么时候往下，什么时候返回 |
+|---|---|---|
+| [ops/__init__.py](../../triton-legacy/python/triton/ops/__init__.py#L1) | `from .einsum import _einsum, einsum` 说明公共的 `einsum` 从同一个包内的 `einsum.py` 导出 | 当前只追 `einsum`，继续去对应定义。文件里另一个 `batchnorm` 导入和这次调用无关 |
+| [einsum.py 的公共函数](../../triton-legacy/python/triton/ops/einsum.py#L700) | 最终调用 `_einsum.apply(...)`。在本例要找前向计算，就去同一文件的 [`_einsum.forward`](../../triton-legacy/python/triton/ops/einsum.py#L644) | `forward` 先按表达式、张量类型、shape 和 stride 等查现有实例。第一次生成 kernel 的问题走 `key not in cache` 的分支，进入 `_einsum.instance` 的构造 |
+| [instance 中准备生成参数的位置](../../triton-legacy/python/triton/ops/einsum.py#L539) | `[(x, arrays[x]) for x in subscripted]` 依照用到的名称拿数据。若 `x` 是 `"sh"`，就把名称与位移数组配成一对。接着 `make_delta` 计算增量并返回使用方式。两份结果都交给进一步的 kernel 构造 | 想确认增量表怎样取数时才回到上一节的 `make_delta` 走读。确认 `delta_a` 与 `lut_mode_a` 各是什么后，回到 `_einsum.make_kernel` 的调用 |
+| [生成函数开头](../../triton-legacy/python/triton/ops/einsum.py#L72) 和[末尾](../../triton-legacy/python/triton/ops/einsum.py#L339) | 开头 `src = ""` 准备空字符串，中间逐段拼进 Triton-C，末尾 `triton.kernel(src, defines=defines)` 把源码和宏配置交给运行时 | `padelta` 指向增量表，`*padelta` 取增量，`padelta += TK` 切到下一组表项，上面的两通道示例已展开这一分支。继续追编译时可沿[旧运行时入口](00-how-to-read.md) |
+| [instance 的参数与 run](../../triton-legacy/python/triton/ops/einsum.py#L591) | 若表用 DRAM 模式，构造函数将增量表转成 GPU 张量并加入 `self.args`；`run` 填进去这次调用的 a、b、c，并调用 `self.kernel(*self.args, ...)` | 到这里可以回答谁把参数交给谁。想追设备执行，回到本文引用的生成代码里找从表地址读增量的语句 |
+
+最后试着合上除了示例以外的文件，口头复述一遍：「示例交给 Python 的是表达式和数组。Python 根据索引的变化算出增量，准备 kernel 源码与参数。设备执行时读增量来推进输入地址。」如果缺的是某一步从哪行发生，就只回到那一站查。若你已能解释论文里的查表为何在这里表现为这样的指针更新，可以回到 Listing 8 和 Figure 11。
 
 ## §7–§8（PDF 第 8 页）
 
