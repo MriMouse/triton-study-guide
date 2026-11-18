@@ -27,6 +27,8 @@
 <a id="sec-6-1"></a>
 ## 6.1 从一行三个数到 persistent softmax
 
+归约是把多项汇成一项。softmax 用到两个例子：一行的最大值和一行的指数和。这里的 persistent 表示让已有的 program 在循环里继续处理下一行，先记住「一个 program 可能先后处理多行」。
+
 这次不再是每项互不相关的加法：softmax 的一个输出依赖同一行所有输入。我们先算清楚一行，再把整行放入一个逻辑块，最后读官方教程为什么让一个 program 循环处理多行。
 
 源码固定提交 `46eccb199bfd3f3559b512c4a15870bd45e6a74d`，主文件为 [02-fused-softmax.py](../../triton/python/tutorials/02-fused-softmax.py)。代码许可见 [CODE-NOTICE](../CODE-NOTICE.md)。以下先做静态源码带读；6.3 节给出教学 kernel 的实际运行，但没有性能结论。
@@ -278,6 +280,8 @@ self 是已编译内核对象，grid固定三维。runner获取流并调用launc
 
 <a id="sec-6-2"></a>
 ## 6.2 矩阵乘法：二维地址、K 循环与分组调度
+
+K 是每个输出位置需要累加的乘积数。若 K=5、每次处理 2 项，三轮依次覆盖 0–1、2–3、4 和尾部空位。autotune 是对给定输入试跑多组配置并按计时选一组，打开配置表时先问每个名字控制哪一步。
 
 本章读 `C = A @ B` 怎样成为按块加载、沿K累加、最后写回的 kernel。先用能手算的矩阵追清每个地址，再看官方教程的分组顺序和 autotune；不从“使用 Tensor Core 就快”这样的结论开始。
 

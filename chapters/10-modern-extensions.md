@@ -40,6 +40,8 @@
 <a id="sec-10-2"></a>
 ## 10.2 显式布局怎样进入一个 Gluon copy
 
+Gluon 的显式布局让程序员描述一块值如何分给线程和寄存器。下面复制同一块数据时，先分清两种信息：索引算出的输入地址与每个线程负责读哪些索引。
+
 固定SHA `46eccb199bfd3f3559b512c4a15870bd45e6a74d`。主要来源[gluon/02-layouts.py](../../triton/python/tutorials/gluon/02-layouts.py)，静态核对与手算，未运行GPU。Gluon位于 `triton.experimental`，接口不应当作永久稳定的语言标准。
 
 ### 1. 与tl的第一个差别发生在哪里
@@ -165,6 +167,8 @@ Gluon是2019之后的语言接口；论文§5.2.1/Figure 5帮助理解层次分�
 
 <a id="sec-10-3"></a>
 ## 10.3 低精度矩阵乘中的 scale 到底乘在哪里
+
+低精度值能用较少位存储，但往往要乘尺度才能恢复数值大小。设保存的值是 3、尺度是 0.5，参与计算的数值是 1.5。block scaling 指一组值共用同一个尺度；读指令时先核对每个尺度覆盖哪组坐标。
 
 固定SHA `46eccb199bfd3f3559b512c4a15870bd45e6a74d`。本部分读[10-block-scaled-matmul.py](../../triton/python/tutorials/10-block-scaled-matmul.py)和[Gluon 11](../../triton/python/tutorials/gluon/11-tcgen05-mma-scaled.py)。静态核对、纸笔推演，未运行GPU、量化模型或性能测试。
 
@@ -329,6 +333,8 @@ tma.store_wait(0)
 
 <a id="sec-10-4"></a>
 ## 10.4 AMD 后端：从同一 tile 到 hsaco
+
+后端接住同一份逻辑运算并根据目标设备决定生成哪些指令。这里的 hsaco 是 AMD 路径给驱动加载的二进制产物。阅读时可以把 CUDA 章节的 cubin 当作职责上的对照。
 
 固定SHA `46eccb199bfd3f3559b512c4a15870bd45e6a74d`。依据[AMD compiler.py](../../triton/third_party/amd/backend/compiler.py)和[driver.py](../../triton/third_party/amd/backend/driver.py)静态带读；未在AMD设备编译/运行。
 

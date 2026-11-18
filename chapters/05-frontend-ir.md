@@ -22,6 +22,8 @@
 <a id="sec-5-1"></a>
 ## 5.1 编译器怎样读懂 x + y：AST、语义对象与 builder
 
+读到 `fn(*args, **extra_kwargs, **kws)` 时，三个星号表达式都出现在调用位置。`args` 提供位置实参，两个字典分别依键名提供命名实参；例如 `extra_kwargs["_semantic"]` 准备了一个名为 `_semantic` 的参数。可先复习[定义与调用里的星号](00-foundations.md#python-launch-syntax)。
+
 本部分接住 4.2 的 ASTSource：它保存向量加法的 JITFunction、参数类型、B=4 的编译常量和参数属性。目标是解释 `output = x + y` 怎样变成 IR 中的浮点加法操作。x/y 仍对应 N=10 的输入，但**编译期间不取出它们的十个浮点数来相加**。
 
 固定源码提交 `46eccb199bfd3f3559b512c4a15870bd45e6a74d`。5.1–5.2 为静态核对；5.3 节给出从该提交构建后的实际编译与 IR 导出。代码摘录许可见 [CODE-NOTICE](../CODE-NOTICE.md)。
@@ -318,6 +320,8 @@ generator.visit 完成后，ast_to_ttir 返回 module。它包含函数、基本
 
 <a id="sec-5-2"></a>
 ## 5.2 第一次读 IR：名字、类型、操作与数据流
+
+先找百分号名字的定义和使用。左边的 `%result` 是这一行产生的值，右边的 `%input` 是之前已有的输入。类型里的 `tensor<4xf32>` 可以读成「形状为 4、每个元素为 32 位浮点数的一块值」。
 
 5.1 说明 builder 怎样构造浮点加法。本章把构造出来的东西当作一种可读的程序：谁定义值、谁使用值、shape 写在哪里、哪些信息到 TTGIR 才出现。读完应能手工追踪一段 range→地址→load→add 的数据流，而不是只背 TTIR/TTGIR 两个缩写。
 

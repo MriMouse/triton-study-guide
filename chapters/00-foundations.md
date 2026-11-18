@@ -59,7 +59,7 @@ add_kernel[grid](x, y, output, n_elements, BLOCK_SIZE=1024)
 return output
 ```
 
-第一行在host端分配输出张量；此时没有做加法，内容尚未初始化。第二行读出元素数量作为N。第三行创建一个稍后用于计算启动数量的函数，并没有启动工作。
+第一行在host端分配输出张量；此时没有做加法，内容尚未初始化。第二行读出元素数量作为N。第三行创建一个稍后用于计算启动数量的函数，方括号中的 `grid` 就指向它。等第 0.2 节再拆解[两处 lambda 和两对括号](#python-launch-syntax)。
 
 第四行是边界：它把输入、输出、N、B交给Triton接口。运行时可能先准备编译版本，再提交设备执行。第五行返回的是张量对象；设备结果可能还在生成中。
 
@@ -78,7 +78,7 @@ tl.store(output_ptr + offsets, output, mask=mask)
 
 `offsets`、`mask`由本函数前面的语句构造，4.1会逐行追到它们。这里先看输入输出：load表达从地址获得逻辑值，`x+y`产生计算结果，store表达写回指定地址。kernel中的output是当前program的一块逻辑值，host的output是完整输出张量，二者通过output_ptr所指存储连接。
 
-编译时，Triton读取这段源码并构造操作；执行时，编译好的设备程序才真正读取数据。后面每章都会明确当前在哪一层。
+先把 `tl.load(address, mask=mask)` 读成「从 address 取值，由 mask 决定哪些位置允许读取」。这些地址与真假条件可以各有多项，`store` 则把有效位置写回。编译时，Triton 读取这段源码并构造操作；执行时，编译好的设备程序才真正读取数据。后面每章都会明确当前在哪一层。
 
 ### 3. 大模型层与这些小算子怎样联系
 
@@ -136,7 +136,7 @@ M, N, K,
 <a id="sec-0-2"></a>
 ## 0.2 用真实调用补齐 Python 与 C++ 阅读语法
 
-本章不列完整语言教程，而是把后面反复出现的语法连到实际对象。现代/历史源码版本分别见[版本](../appendices/source-version.json)和[历史版本](../appendices/legacy-version.json)。不执行代码；等价改写明确标注。
+本章不列完整语言教程，而是把后面反复出现的语法连到实际对象。现代/历史源码版本分别见[版本](../appendices/source-version.json)和[历史版本](../appendices/legacy-version.json)。教学例子使用普通 Python；Triton 摘录后会标出可以继续追的源码。
 
 ### 1. 点号先从名字空间看起
 
@@ -151,29 +151,91 @@ import triton.language as tl
 
 如果一个文件写`from .compiler import compile`，相对import以当前Python包为起点；不是以你执行shell时的目录为起点。追一个名字应先看本文件import与赋值，不能因为都叫compile就认定是同一个函数。
 
-### 2. lambda怎样保存外层信息
+<a id="python-launch-syntax"></a>
+### 2. 拆开 `add_kernel[grid](...)` 里的 Python 语法
 
-[jit.py](../../triton/python/triton/runtime/jit.py)第371–377行，移除docstring后的实际代码：
+读这节是为了回答一个实际的源码问题：**方括号里给了 grid，为什么后面还能写一对圆括号传张量？最后是谁拿到了这些值？** 先学会把这行拆成两次操作，再追进 JIT。
+
+#### 2.1 调用时按位置给值，或写出名字
+
+看普通的 `def show(size, count): ...`。`size` 和 `count` 是函数定义里的名字（**形参**）。调用 `show(4, 10)` 时，Python 按顺序让 `size=4`、`count=10`，因此这两个值叫**位置实参**。调用 `show(4, count=10)` 时，`4` 仍按位置交给 `size`，`10` 则按名字交给 `count`。后一种实参叫**关键字实参**，也常说「命名参数」。调用里的 `count=10` 意思是用这个名字传值。
+
+#### 2.2 tuple 和 dict 中各装了什么
+
+| 写法 | 类型与含义 | 如何取出一个值 |
+|---|---|---|
+| `(4, 10)` | `tuple`（元组），有顺序的一组值，建好后各位置不能换成别的值 | `values[0]` 取第一个值 `4` |
+| `{"BLOCK_SIZE": 4}` | `dict`（dictionary，字典），用键查对应的值 | `options["BLOCK_SIZE"]` 按字符串键取出 `4` |
+| `()`、`{}` | 分别是空元组和空字典 | 目前没有任何项 |
+| `(3,)` | 只有一项的元组，逗号区分它与表示数字 3 的 `(3)` | `grid_shape[0]` 得到第一维的启动数量 `3` |
+
+字典里的冒号把一个键与一个值配成一项。元组里的项目可以是数字，也可以是整个张量对象。比如 `(x, y, 10)` 有三项，无论 `x`、`y` 各自包含多少个元素。
+
+#### 2.3 星号在定义和调用里各做一件事
+
+`args` 是 arguments（实参）的惯用缩写，`kwargs` 是 keyword arguments（关键字实参）的惯用缩写。这两个变量名可以换成 `positional` 和 `named`。让 Python 执行下面行为的是星号所在的位置。
+
+```python
+def show(size, count):
+    return size, count
+
+def relay(*args, **kwargs):
+    print(args)
+    print(kwargs)
+    return show(*args, **kwargs)
+
+print(relay(4, count=10))
+# (4,)
+# {'count': 10}
+# (4, 10)
+```
+
+1. 调用 `relay(4, count=10)` 时，定义里的 `*args` 让 Python 把未被其他形参接走的位置实参装进一个元组，再把这个元组交给局部变量 `args`。这里是 `(4,)`。
+2. 定义里的 `**kwargs` 让 Python 把未被其他形参接走的关键字实参装进一个字典，再把字典交给 `kwargs`。这里有一项，键为字符串 `"count"`，值为 `10`。这就是有些资料里「收成字典」所指的具体动作。
+3. 调用 `show(*args, **kwargs)` 时，星号要求 Python 拿出元组中的每项，按顺序传递，再拿出字典中的每项，按键名传递。这次等价于 `show(4, count=10)`。因此写成 `show(args, kwargs)` 会得到另一个结果：两个容器会各自作为一个完整的位置实参传进去。
+
+#### 2.4 lambda 创建一个可以稍后调用的函数
+
+`lambda value: value + 1` 读作「创建一个接收 `value` 并返回 `value + 1` 的函数」。冒号左边写形参，右边是调用时计算并返回的表达式。写 `plus_one = lambda value: value + 1` 时，变量 `plus_one` 指向刚创建的函数；写 `plus_one(4)` 时才做加法。
+
+再看一个只差一行的版本：
+
+```python
+def make_adder(amount):
+    return lambda value: value + amount
+
+add_four = make_adder(4)
+add_ten = make_adder(10)
+
+print(add_four(3))  # 7
+print(add_ten(3))   # 13
+```
+
+执行 `make_adder(4)` 时，`amount` 是这次外层调用的局部名字，指向 `4`。返回的是内层函数。稍后执行 `add_four(3)`，这个内层函数从当次圆括号获得 `value=3`，再从创建它的那次外层调用找到 `amount=4`。`add_ten` 由另一次外层调用创建，所以找到的是另一个 `amount`。`return` 之后内层函数还能访问这个名字，这个机制叫**闭包**。它保留的是访问外层变量的能力。把这个例子的 `lambda` 写成 `make_adder` 内层的 `def add(value): return value + amount` 再返回 `add`，效果相同。
+
+#### 2.5 应用到 Triton 的两对括号
+
+[jit.py](../../triton/python/triton/runtime/jit.py#L371) 的 `KernelInterface.__getitem__`（省略文档字符串）：
 
 ```python
 def __getitem__(self, grid) -> T:
     return lambda *args, **kwargs: self.run(grid=grid, warmup=False, *args, **kwargs)
 ```
 
-`__getitem__`是Python处理`obj[...]`时调用的特殊方法。self指正在被索引的对象；grid接到方括号内容。`-> T`是返回类型注解，不是一条GPU指令。
-
-return右边创建函数对象，尚未调用run。这个函数保留self和grid，等你补上圆括号实参时才使用它们。
-
-把lambda写长，得到**等价语法教学版**：
+把原调用写成两行。这里的 `x`、`y`、`out` 是三个张量对象，`10` 是元素总数，`BLOCK_SIZE=4` 表示每份程序处理 4 个逻辑位置。
 
 ```python
-def proxy(*args, **kwargs):
-    return self.run(grid=grid, warmup=False, *args, **kwargs)
+launch = add_kernel[grid]
+launch(x, y, out, 10, BLOCK_SIZE=4)
 ```
 
-`*args`把位置参数收成tuple，`**kwargs`把关键字参数收成dict；出现在调用中时又将它们展开。因此一次`proxy(x,y,out,10,BLOCK_SIZE=4)`可以先理解为：args含四个位置对象，kwargs里有BLOCK_SIZE:4，run还额外收到grid与warmup=False。
+| 时刻 | 谁接到哪些值 | 接下来做什么 |
+|---|---|---|
+| 求 `add_kernel[grid]` | Python 调用对象的 `__getitem__`。`self` 是 `add_kernel` 包装对象，`grid` 是方括号里的值 | 创建并返回 `lambda`。它以后能找到这次 `__getitem__` 的 `self` 和 `grid` |
+| 求 `launch(...)` | 内层函数的 `args` 是 `(x, y, out, 10)`，`kwargs` 是 `{"BLOCK_SIZE": 4}` | 开始执行冒号右边的 `self.run(...)` |
+| 进入 `run` | 转交四个位置实参、`BLOCK_SIZE=4`，再加上接口显式给出的 `grid=grid`、`warmup=False` | 运行时按 kernel 形参表绑定参数，后面再求 grid 并发射 |
 
-这不是把张量的所有元素逐个塞进args。参数对象的数量与元素数量是两件事。
+`grid=grid` 左边是传给 `run` 的参数名，右边取外层方括号留下的值。在向量加法里这个值本身也是函数：`lambda meta: (...,)`。那一处函数记住的是 host 函数里的 `n_elements`，调用时按 `meta["BLOCK_SIZE"]` 查块大小。以 `N=10`、`B=4` 为例，向上取整得到三个 program，返回值是 `(3,)`。因此源码里的两个 lambda 有不同工作：一个计算启动数量，一个把启动所需参数转交给 `run`。从这一步继续读[第 4 章 JIT 路径](04-vector-add-jit.md#sec-4-2)。
 
 ### 3. self不是隐藏的全局变量
 
@@ -211,7 +273,7 @@ if kernel is None:
     cache[key] = kernel
 ```
 
-第一行创建容器；第二行用可哈希tuple表达条件；第三行找这个条件对应的值。字典没有该键时get返回None，再执行分支。cache赋值存的是对象引用，不是重新运行设备计算。
+第一行创建容器；第二行用元组 `('fp32', 4)` 作为键，表示数据类型和块大小的组合；第三行找这个条件对应的值。字典没有该键时get返回None，再执行分支。cache赋值存的是对象引用，不是重新运行设备计算。
 
 真实JIT还要考虑类型、常量、后端与选项，不能把上面两个字段当真实缓存键。此例只解释“查找→未命中→准备对象→保存”的控制流。
 

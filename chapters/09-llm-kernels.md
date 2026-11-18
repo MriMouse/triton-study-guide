@@ -53,6 +53,8 @@ KV Cache 则跨越整个生成过程：它保存历史 token 的 K/V，让 decod
 <a id="sec-9-2"></a>
 ## 9.2 两块 K/V，怎样得到同一个 softmax 输出
 
+Attention 的 score 是每个 query（Q）与各 key（K）的相似度分数；softmax 将同一行的分数变成权重，再用这些权重对 value（V）求加权和。下文「在线」指读到新一块 K/V 时就更新已有的最大值、分母和加权和。
+
 固定SHA `46eccb199bfd3f3559b512c4a15870bd45e6a74d`。带读[06-fused-attention.py](../../triton/python/tutorials/06-fused-attention.py)的forward路径；小数例为纸笔推演，不是合法硬件tile配置或实际运行结果。
 
 ### 1. 先把矩阵乘的两边说清
@@ -213,6 +215,8 @@ qk -= m_ij[:, None]
 <a id="sec-9-3"></a>
 ## 9.3 一行 hidden 的 LayerNorm 与 RMSNorm
 
+hidden 维是每个 token 表示中各个分量所在的一轴。以一行 `[1,3]` 为例，LayerNorm 会先围绕均值 2 做中心化；RMSNorm 的核心尺度来自平方的均值，仍直接对原来的 1 和 3 应用尺度。
+
 固定 SHA `46eccb199bfd3f3559b512c4a15870bd45e6a74d`，真实带读 [05-layer-norm.py](../../triton/python/tutorials/05-layer-norm.py) forward。RMSNorm 另给明确教学改写，不冒充本教程已有实现。9.5 节给出小矩阵 LayerNorm/RMSNorm 的实际运行。
 
 ### 1. 哪个维度被归一化
@@ -348,6 +352,8 @@ host负责分配Y，检查X连续、W长度N、B为覆盖N的受支持块长，�
 
 <a id="sec-9-4"></a>
 ## 9.4 从连续 K/V 索引到请求中的分页
+
+KV cache 存的是先前 token 产生的 K/V。分页先把逻辑 token 位置分成「第几页、页内第几个」，再查页表得到物理存储位置。例如每页 4 个 token 时，位置 6 对应逻辑页 1、页内位置 2。
 
 固定SHA `46eccb199bfd3f3559b512c4a15870bd45e6a74d`。本部分真实源码基线仍是[06-fused-attention.py](../../triton/python/tutorials/06-fused-attention.py)的连续descriptor路径；分页和 decode 专用接口是**教学推导**，不是该教程已经实现的 paged serving kernel。本部分未运行 GPU/模型。
 

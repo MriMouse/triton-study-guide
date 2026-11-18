@@ -697,7 +697,7 @@ stream可以先理解为设备工作的有序队列。同一stream里的后续�
 | 标量起点加到四个位置 | §3.2.2，PDF第3–4页，Listing 4在第4页 | 广播为何让块级表达更简洁？ |
 | mask决定每个逻辑位置是否访问 | §3.1 Predication，第3页；§4.3/Listing 6，第5页 | 为什么tile内部需要逐元素条件？为什么单个标量if不够？ |
 
-论文原先使用Triton-C与旧Triton-IR。现代masked load不等于论文的psi指令；我们固定的2020历史快照也还未核实完整PSSA/prefetch对应。历史章节将分别读真实代码，再对照差异。
+论文原先使用Triton-C与旧Triton-IR。现代masked load不等于论文的psi指令；我们固定的2020历史快照也还未核实完整PSSA/prefetch对应。可沿[论文 IR 篇](../paper-reading/02-ir.md)和[编译篇](../paper-reading/03-compiler.md)对照真实代码。
 
 ### 17. 不装 Triton，先用 CPU 检查这套索引推演
 
@@ -785,16 +785,9 @@ def __getitem__(self, grid) -> T:
 
 `self` 是“这次方法所属的对象”，此处就是 `add_kernel` 对应的 JITFunction；不是 x，也不是某个 program。Python 会把 `add_kernel[grid]` 转到它的 `__getitem__` 方法。继承让 JITFunction 可以使用 KernelInterface 提供的接口。
 
-返回的 lambda 保存了两个外层对象：self 与 grid。保存外层名字供稍后使用叫闭包。`*args` 收集调用者的位置实参，`**kwargs` 收集按名字给出的实参。于是调用代理时，内容是：
+先写成 `launch = add_kernel[grid]` 和 `launch(x, y, output, 10, BLOCK_SIZE=4)`。第一行创建函数，第二行才执行函数体。函数从外层的 `__getitem__` 取到 `self` 和 `grid`，从第二行得到 `args=(x, y, output, 10)` 与 `kwargs={"BLOCK_SIZE": 4}`。后者是一张按名字查值的字典，键 `"BLOCK_SIZE"` 对应值 `4`。
 
-```text
-args   = (x张量对象, y张量对象, output张量对象, 10)
-kwargs = {'BLOCK_SIZE': 4}
-grid   = 上一步创建的grid函数
-warmup = False
-```
-
-lambda 接着调用 `self.run(...)`。grid 和 warmup 显式命名，另外四个实参仍保留顺序。`**kwargs` 在调用位置表示把字典展开成命名参数，并非把字典当成一个 kernel 参数。
+把星号展开读，这次调用等价于 `self.run(x, y, output, 10, grid=grid, warmup=False, BLOCK_SIZE=4)`。这里的 `grid` 还是可在稍后调用的函数。需要从普通 Python 调用开始拆解时，回看[形参、字典、星号与闭包](00-foundations.md#python-launch-syntax)。
 
 **确认题：** 方括号执行后有没有读取 x[0]？没有；得到的是 host 上的代理函数。现在连 grid 函数都还没有求值。
 

@@ -13,6 +13,8 @@
 <a id="sec-a-1"></a>
 ## A.1 论文、历史源码与现代实现定位表
 
+按顺序跟读可进入[论文逐段带读](../paper-reading/README.md)。
+
 核对原文：Philippe Tillet、H. T. Kung、David Cox，*Triton: An Intermediate Language and Compiler for Tiled Neural Network Computations*，MAPL 2019，[作者站 PDF](https://www.eecs.harvard.edu/~htk/publication/2019-mapl-tillet-kung-cox.pdf)，[DOI](https://doi.org/10.1145/3315508.3329973)。下表页码是 **PDF 文件从 1 开始的页序**，不是某个会议合订本的印刷页码。共 10 页。
 
 这里提供节号和阅读问题，不复制整篇论文。图和 Listing 请打开原 PDF 对照；`Listing` 指论文里的编号代码清单。
@@ -29,14 +31,14 @@
 | §3.1 Syntax，Listing 3 | 3 | tile、range、broadcast、predication 怎样写？ | [parser.cc](../../triton-legacy/lib/lang/parser.cc) | [core.py](../../triton/python/triton/language/core.py)；今天用 Python 风格接口，旧语法已不同 |
 | §3.2.1 Tile semantics | 3 | 为什么保留成块的操作？ | [旧 type.h](../../triton-legacy/include/triton/ir/type.h) | [4.1向量加法](../chapters/04-vector-add-jit.md#sec-4-1)；逻辑值不是单个硬件线程 |
 | §3.2.2 Broadcasting，Listing 4 | 3–4，Listing 在 4 | 不同 shape 怎样参与同一计算？ | [code_gen.cc](../../triton-legacy/lib/lang/code_gen.cc) | [semantic.py](../../triton/python/triton/language/semantic.py)；对应广播思想而非语法相同 |
-| §3.3 Programming Model，Figure 3 | 4 | 源程序的一块工作怎样对应并行执行？ | [旧 CUDA 对照](../../triton-legacy/docs/tutorials/triton-vs-cuda.rst) | [GPU 基础](../chapters/00-foundations.md#sec-0-3)；旧文“single-threaded”不是只有一个物理线程 |
+| §3.3 Programming Model，Figure 3 | 4 | 源程序的一块工作怎样对应并行执行？ | [旧 CUDA 对照](../../triton-legacy/docs/tutorials/triton-vs-cuda.rst) | [GPU 基础](../chapters/00-foundations.md#sec-0-4)；旧文“single-threaded”不是只有一个物理线程 |
 | Listing 1 矩阵乘 | 2 | tile 索引、指针广播、mask 与累加怎样配合？ | [旧 dot benchmark](../../triton-legacy/tests/bench/dot.cc) | [现代 GEMM 教程](../../triton/python/tutorials/03-matrix-multiplication.py)；后续 GEMM 章详细对照 |
 | §4 The Triton IR，Listing 5 | 4–5，Listing 在 4 | 怎样保留 tile 运算供优化？ | [旧 IR 头文件](../../triton-legacy/include/triton/ir) | [现代 Triton dialect](../../triton/include/triton/Dialect/Triton/IR)；旧文本不是现代 TTIR |
 | §4.1 Structure | 4–5 | module/function/basic block/SSA 怎样组织程序？ | [basic_block.h](../../triton-legacy/include/triton/ir/basic_block.h) | [AST code generator](../../triton/python/triton/compiler/code_generator.py)；共同概念不意味着共用类型 |
 | §4.2 Data-Flow，Figure 4 | 5 | shape、reshape、broadcast、dot 怎样显式表达？ | [instructions.h](../../triton-legacy/include/triton/ir/instructions.h) | [TritonOps.td](../../triton/include/triton/Dialect/Triton/IR/TritonOps.td)；逐项比对操作和类型 |
 | §4.3 Control-Flow，Listing 6 | 5 | 怎样表达 tile 内逐元素条件？ | [旧 masked load 构造](../../triton-legacy/lib/lang/code_gen.cc) | [load/store API](../../triton/python/triton/language/core.py)；PSSA/psi 尚未在此旧快照核实，不能说 masked load 就是 psi |
 | §5 The Triton-JIT compiler | 5–7 | 从逻辑计算到目标代码需要哪些决定？ | [make_bin](../../triton-legacy/lib/runtime/function.cc) | [NVIDIA pipeline](../../triton/third_party/nvidia/backend/compiler.py)；对照职责而非同名类 |
-| §5.1.1 Pre-Fetching，Listing 7 | 5 | 怎样提前加载，隐藏循环中的访存延迟？ | 此快照未找到独立对应 pass，待继续追历史 | [现代流水线目录](../../triton/lib/Dialect/TritonGPU/Transforms/Pipeliner)；现代异步流水线不是论文原实现 |
+| §5.1.1 Pre-Fetching，Listing 7 | 5 | 怎样提前加载，隐藏循环中的访存延迟？ | [旧 dot 的手写预取](../../triton-legacy/tests/common/src/dot.h)，自动变换尚未核实 | [现代流水线目录](../../triton/lib/Dialect/TritonGPU/Transforms/Pipeliner)；现代异步流水线不是论文原实现 |
 | §5.1.2 Tile-Level Peephole | 6 | 局部等价变换为何需要 tile 语义？ | [peephole.cc](../../triton-legacy/lib/codegen/transform/peephole.cc) | [现代 Triton transforms](../../triton/lib/Dialect/Triton/Transforms)；需选具体模式验证 |
 | §5.2.1 Hierarchical Tiling，Figure 5 | 6 | 逻辑 tile 怎样匹配计算和存储层次？ | [layout.cc](../../triton-legacy/lib/codegen/analysis/layout.cc) | [TritonGPU transforms](../../triton/lib/Dialect/TritonGPU/Transforms)；现代 layout 系统已经发展 |
 | §5.2.2 Memory Coalescing，Figure 6 | 6 | 相邻线程的地址怎样影响事务利用率？ | [coalesce.cc](../../triton-legacy/lib/codegen/transform/coalesce.cc) | [Coalesce.cpp](../../triton/lib/Dialect/TritonGPU/Transforms/Coalesce.cpp)；同名问题不证明算法相同 |
@@ -44,14 +46,14 @@
 | §5.2.4 Shared Memory Synchronization | 6 | RAW/WAR 依赖怎样要求插入同步？ | [membar.cc](../../triton-legacy/lib/codegen/transform/membar.cc) | [Membar.cpp](../../triton/third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/Membar.cpp)；现代 async wait/barrier 需额外语义 |
 | §5.3 Auto-tuner | 7 | 哪些参数被搜索？搜索与编译的关系？ | [precompile 与选项](../../triton-legacy/lib/runtime/function.cc) | [autotuner.py](../../triton/python/triton/runtime/autotuner.py)；现代用户配置搜索不是论文空间的原样延续 |
 | §6.1 Matrix Multiplication，Figure 8 | 7 | 输入 shape 与对照环境是什么？ | [bench](../../triton-legacy/tests/bench) | [现代 GEMM](../../triton/python/tutorials/03-matrix-multiplication.py)；后续另定当前验证，不复用旧倍数 |
-| §6.2 Convolutions、§6.2.1 Dense、§6.2.2 Shift | 7–8 | 系统如何处理常规与新型算子？ | 当前快照未核验到论文卷积实验的完整一一对应入口 | 用于理解原论文动机；本书主练习按当前 LLM 算子安排 |
+| §6.2 Convolutions、§6.2.1 Dense、§6.2.2 Shift | 7–8 | 系统如何处理常规与新型算子？ | [历史卷积示例与查表增量](../paper-reading/04-experiments.md#listing-8)，实验配置仍需逐项核对 | 用于理解原论文动机；本书主练习按当前 LLM 算子安排 |
 | §7 Conclusions | 8 | 哪些是已实现内容，哪些是未来方向？ | 与所选快照逐项核验 | Tensor Core、现代硬件特性、Gluon 等需另读今天的来源 |
 
 ### 目前需要特别保留的三个差异
 
 1. **Triton-C 已不再是现代主线前端。** 学它是为了理解原论文的表达方式与前端工作；实际新 kernel 先学经典 `tl`，再学 Gluon。
 2. **旧 Triton-IR 不是 TTIR 的旧拼写。** 两者的基础设施、语法和指令体系不同；SSA、tile、数据流是可迁移的理解。
-3. **2019 论文与 2020 快照有待追溯的差距。** 尤其 prefetch/PSSA，当前没有足够证据写“原论文实现已完整保存”。后续历史章节先补证据，再做精读。
+3. **2019 论文与 2020 快照有待追溯的差距。** 尤其 prefetch/PSSA，当前没有足够证据写“原论文实现已完整保存”。具体机制及版本差异见[论文 IR 篇](../paper-reading/02-ir.md)与[编译篇](../paper-reading/03-compiler.md)。
 
 未来新增章节时，在相应段落标注具体节号，而不是只在参考文献中笼统列论文。若你实际阅读的是另一篇后续 Triton 论文，这张表继续保留为 2019 基础路线，再增加独立索引，不能混用节号。
 
